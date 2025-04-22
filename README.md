@@ -1,4 +1,4 @@
-# 🃏 Poker AI – Agente inteligente para póker Texas Hold'em
+# Poker AI – Agente inteligente para Poker Texas Hold'em
 
 Proyecto personal de inteligencia artificial aplicada al póker, desarrollado en Python. Combina simulación estadística, teoría de juegos y algoritmos de decisión para construir un agente capaz de tomar decisiones estratégicas en entornos con información incompleta.
 
