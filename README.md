@@ -4,13 +4,13 @@ Proyecto personal de inteligencia artificial aplicada al póker, desarrollado en
 
 ---
 
-##Objetivo
+#Objetivo
 
 Diseñar un agente capaz de jugar al póker de forma estratégica, utilizando algoritmos como **Monte Carlo Tree Search (MCTS)** y **Counterfactual Regret Minimization (CFR)**, junto con análisis de rangos, evaluación de equity y simulación de partidas completas desde cualquier estado del juego.
 
 ---
 
-##Tecnologías y herramientas
+#Tecnologías y herramientas
 
 - **Lenguaje principal:** Python 3  
 - **Algoritmos:** MCTS, CFR  
