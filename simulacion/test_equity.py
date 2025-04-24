@@ -1,24 +1,33 @@
-# test_mcts_vs_human.py
-
 from poker_engine import PokerCoreEngine, compact_card
-from montecarlo import get_equity_cached, human_bot_action_callback
+from montecarlo import get_equity_cached, human_bot_action_callback, advanced_ia_action_callback
 from mcts_modulo import run_mcts
 from copy import deepcopy
+
+# Hacer engine global para acceder en mostrar_estado
+engine = None
 
 
 def mostrar_estado(jugador, state, fase):
     mano = [compact_card(c) for c in jugador.mano]
-    comunidad = state.get("community", [])
+
+    # Usar comunidad real desde el engine si está disponible
+    comunidad = []
+    if engine is not None and hasattr(engine, "mesa") and hasattr(engine.mesa, "community_cards"):
+        comunidad = [compact_card(c) for c in engine.mesa.community_cards]
+    elif "community" in state:
+        comunidad = state["community"]
+
     equity = get_equity_cached(mano, comunidad)
-    print(f"\n--- Fase: {fase.upper()} ---")
+    print(f"\n--- FASE: {fase.upper()} ---")
     print(f"Jugador {jugador.id} ({jugador.nombre})")
-    print(f"  Mano:      {mano}")
-    print(f"  Comunidad: {comunidad if comunidad else '(vacía)'}")
-    print(f"  Equity:    {round(equity * 100, 2)}%")
+    print(f"  Mano:        {mano}")
+    print(f"  Comunidad:   {comunidad if comunidad else '(vacía)'}")
+    print(f"  Equity:      {round(equity * 100, 2)}%")
     return equity
 
 
 def mcts_vs_human_test(num_partidas=3):
+    global engine
     print(f"\n=== TEST: MCTS vs HumanBot ({num_partidas} partidas) ===")
     engine = PokerCoreEngine(
         nombres_jugadores=["MCTS_IA", "Human_Bot"],
@@ -35,7 +44,7 @@ def mcts_vs_human_test(num_partidas=3):
             mostrar_estado(jugador, state, fase)
             print(f"  Acciones válidas: {valid_actions}")
             if jugador.id == 0:
-                best = run_mcts(deepcopy(engine.get_state()), jugador.id, valid_actions, num_simulaciones=300)
+                best = advanced_ia_action_callback(jugador, state, valid_actions)
                 print(f"=> MCTS elige: {best}")
                 return best
             else:
