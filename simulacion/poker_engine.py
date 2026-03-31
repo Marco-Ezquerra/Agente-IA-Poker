@@ -1,18 +1,18 @@
 import random
 import json
 import logging
-logging.disable(logging.CRITICAL)   #comentamos todos los log que hemos metido para depurar
+
 from template import eval_hand_from_strings
 
-# Configuración global de logging (se eliminan muchos DEBUG de iteración)
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.WARNING,
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[logging.StreamHandler()],
     force=True
 )
 
 def compact_card(carta):
+    """Convierte un objeto Carta a notación compacta ('Ah', 'Ks', etc.)."""
     valor_map = {'10': 'T', 'J': 'J', 'Q': 'Q', 'K': 'K', 'A': 'A'}
     v = valor_map.get(carta.valor, str(carta.valor))
     palo_map = {'Corazones': 'h', 'Picas': 's', 'Trebol': 'c', 'Diamante': 'd'}
@@ -20,6 +20,7 @@ def compact_card(carta):
 
 ### Clases básicas (Carta, Baraja, Jugador)
 class Carta:
+    """Representa una carta de la baraja española/francesa con palo y valor."""
     def __init__(self, palo, valor):
         self.palo = palo
         self.valor = valor
@@ -29,6 +30,7 @@ class Carta:
         return self.__str__()
 
 class Baraja:
+    """Baraja de 52 cartas. Se mezcla automáticamente al instanciarse."""
     def __init__(self):
         palos = ["Corazones", "Picas", "Trebol", "Diamante"]
         valores = [str(n) for n in range(2, 11)] + ["J", "Q", "K", "A"]
@@ -42,6 +44,7 @@ class Baraja:
         return [self.cartas.pop() for _ in range(cantidad)]
 
 class Jugador:
+    """Jugador de la partida con su nombre, stack de fichas, mano y posición."""
     def __init__(self, nombre, fichas=100, id=0):
         self.nombre = nombre
         self.fichas = fichas
@@ -52,8 +55,9 @@ class Jugador:
     def get_state(self):
         return [self.id, self.fichas, [compact_card(c) for c in self.mano]]
 
-### Clase Mesa (no modificada esencialmente)
+### Clase Mesa
 class Mesa:
+    """Gestiona la baraja, los jugadores, las cartas comunitarias y el historial de la partida."""
     def __init__(self, nombres_jugadores):
         self.baraja = Baraja()
         self.jugadores = [Jugador(nombre, id=i) for i, nombre in enumerate(nombres_jugadores)]
@@ -93,6 +97,11 @@ class Mesa:
         return outcome
 
 class RondaApuestasPreflop:
+    """
+    Gestiona una ronda de apuestas preflop entre SB y BB.
+    El orden es SB primero, despues BB.
+    Soporta fold, call, check, raise y all-in con limite de re-raises.
+    """
     def __init__(self, sb, bb, fase, initial_pot, action_callback):
         self.small_blind = sb
         self.big_blind = bb
@@ -277,196 +286,28 @@ class RondaApuestasPreflop:
         return self.phase_outcome
 
 
-### Ronda de apuestas Postflop (diferente: turno inicia en BB, luego SB)
-class RondaApuestasPreflop:
-    def __init__(self, sb, bb, fase, initial_pot, action_callback):
-        self.small_blind = sb
-        self.big_blind = bb
-        self.fase = fase.lower()
-        self.pot = initial_pot
-        self.current_bet = 0.0
-        self.contributions = {sb.id: 0.0, bb.id: 0.0}
-        self.raise_counter = {sb.id: 0, bb.id: 0}
-        self.raise_total_max = 2
-        self.phase_outcome = None
-        self.all_in_occurred = False
-        self.history = []
-        self.action_callback = action_callback if action_callback else default_action_callback
-        self._inicializar_preflop()
-
-    def log(self, event):
-        self.history.append(event)
-
-    def get_state(self):
-        return {
-            "fase": self.fase,
-            "pot": self.pot,
-            "current_bet": self.current_bet,
-            "contributions": self.contributions,
-            "stack_small_blind": self.small_blind.fichas,
-            "stack_big_blind": self.big_blind.fichas,
-            "hand_small_blind": [compact_card(c) for c in self.small_blind.mano],
-            "hand_big_blind": [compact_card(c) for c in self.big_blind.mano],
-            "community": []
-        }
+### Ronda de apuestas postflop (turno inicia en BB, luego SB)
+class RondaApuestasPostflop(RondaApuestasPreflop):
+    """
+    Ronda de apuestas para fases postflop (flop, turn, river).
+    Sobreescribe la inicializacion para NO cobrar blinds y expone
+    las cartas comunitarias en get_state() para que la IA las vea.
+    El orden de accion es BB primero (fuera de posicion), luego SB.
+    """
+    def __init__(self, sb, bb, fase, initial_pot, action_callback, community_cards=None):
+        self._community_cards = community_cards or []
+        super().__init__(sb, bb, fase, initial_pot, action_callback)
 
     def _inicializar_preflop(self):
-        sb_amount = 0.5
-        bb_amount = 1.0
-        self.current_bet = bb_amount
-        self.small_blind.fichas -= sb_amount
-        self.big_blind.fichas -= bb_amount
-        self.pot += (sb_amount + bb_amount)
-        self.contributions[self.small_blind.id] += sb_amount
-        self.contributions[self.big_blind.id] += bb_amount
-        self.log(["s", self.small_blind.id, sb_amount])
-        self.log(["b", self.big_blind.id, bb_amount])
-        self.log(["p", self.pot])
-        self.estado = "SB_TURN"
-
-    def get_valid_actions(self, jugador):
-        to_call = self.current_bet - self.contributions[jugador.id]
-        base_actions = ["fold", "call", "all in"] if to_call > 0 else ["check", "all in"]
-
-        if self.raise_counter.get(jugador.id, 0) < self.raise_total_max:
-            tamanos = [self.pot / 3, self.pot / 2, (2 * self.pot) / 3, self.pot, 1.5 * self.pot, 2 * self.pot]
-            raise_opciones = []
-            for tam in tamanos:
-                raise_total = round(to_call + tam, 2)
-                if raise_total >= 2.0:
-                    raise_opciones.append(("raise", raise_total))
-            return base_actions + raise_opciones
-        else:
-            return base_actions
-
-    def _procesar_apuesta(self, jugador, tipo, all_in=False, raise_amount=None):
-        to_call = self.current_bet - self.contributions[jugador.id]
-
-        if tipo == "call":
-            total = min(to_call, jugador.fichas)
-            if total == jugador.fichas:
-                all_in = True
-            jugador.fichas -= total
-            self.contributions[jugador.id] += total
-            self.pot += total
-            if self.contributions[jugador.id] > self.current_bet:
-                self.current_bet = self.contributions[jugador.id]
-            self.all_in_occurred |= all_in
-            self.log(["c", jugador.id, total])
-            return {"tipo": "call", "all_in": all_in, "to_call": to_call, "total": total}
-
-        elif tipo == "raise":
-            raise_total = raise_amount
-            total = to_call + raise_total
-            if total >= jugador.fichas:
-                total = jugador.fichas
-                raise_total = total - to_call
-                all_in = True
-            jugador.fichas -= total
-            self.contributions[jugador.id] += total
-            self.pot += total
-            self.current_bet = self.contributions[jugador.id]
-            self.all_in_occurred |= all_in
-
-            if all_in:
-                self.log(["all in", jugador.id, total])
-                return {"tipo": "all in", "all_in": True, "to_call": to_call, "total": total}
-            else:
-                self.log(["r", jugador.id, raise_total, total])
-                return {"tipo": "raise", "all_in": False, "to_call": to_call, "raise": raise_total, "total": total}
-
-        elif tipo == "all in":
-            total = jugador.fichas
-            jugador.fichas = 0
-            self.contributions[jugador.id] += total
-            self.pot += total
-            if self.contributions[jugador.id] > self.current_bet:
-                self.current_bet = self.contributions[jugador.id]
-            self.all_in_occurred = True
-            self.log(["all in", jugador.id, total])
-            return {"tipo": "all in", "all_in": True, "to_call": to_call, "total": total}
-
-        else:
-            return {"tipo": "fold"}
-
-    def _accion_sb(self):
-        valid_actions = self.get_valid_actions(self.small_blind)
-        accion = self.action_callback(self.small_blind, self.get_state(), valid_actions)
-        if self.current_bet - self.contributions[self.small_blind.id] == 0 and accion == "call":
-            accion = "check"
-        if accion == "fold":
-            self.phase_outcome = "fold"
-            self.big_blind.fichas += self.pot
-            return False
-        elif accion in ["call", "check"]:
-            self._procesar_apuesta(self.small_blind, "call")
-            self.estado = "BB_TURN"
-            return True
-        elif accion == "all in":
-            self._procesar_apuesta(self.small_blind, "all in")
-            self.phase_outcome = "all in"
-            return False
-        elif isinstance(accion, tuple) and accion[0] == "raise":
-            self._procesar_apuesta(self.small_blind, "raise", raise_amount=accion[1])
-            self.raise_counter[self.small_blind.id] += 1
-            self.estado = "BB_TURN"
-            return True
-        else:
-            self.phase_outcome = "fold"
-            self.big_blind.fichas += self.pot
-            return False
-
-    def _accion_bb_preflop(self):
-        valid_actions = self.get_valid_actions(self.big_blind)
-        accion = self.action_callback(self.big_blind, self.get_state(), valid_actions)
-        if self.current_bet - self.contributions[self.big_blind.id] == 0 and accion == "call":
-            accion = "check"
-        if accion == "fold":
-            self.phase_outcome = "fold"
-            self.small_blind.fichas += self.pot
-            return False
-        elif accion in ["call", "check"]:
-            self._procesar_apuesta(self.big_blind, "call")
-            if self.current_bet > self.contributions[self.small_blind.id]:
-                self.estado = "SB_TURN"
-                return True
-            self.phase_outcome = self.fase
-            return False
-        elif accion == "all in":
-            self._procesar_apuesta(self.big_blind, "all in")
-            self.phase_outcome = "all in"
-            return False
-        elif isinstance(accion, tuple) and accion[0] == "raise":
-            self._procesar_apuesta(self.big_blind, "raise", raise_amount=accion[1])
-            self.raise_counter[self.big_blind.id] += 1
-            self.estado = "SB_TURN"
-            return True
-        else:
-            self._procesar_apuesta(self.big_blind, "call")
-            self.phase_outcome = self.fase
-            return False
-
-    def _ejecutar_preflop(self):
-        while True:
-            if self.estado == "SB_TURN":
-                if not self._accion_sb():
-                    break
-            elif self.estado == "BB_TURN":
-                if not self._accion_bb_preflop():
-                    break
-
-    def ejecutar(self):
-        self._ejecutar_preflop()
-        if self.phase_outcome != "fold" and self.all_in_occurred:
-            self.phase_outcome = "all in"
-        self.log(["e", self.phase_outcome, self.pot])
-        return self.phase_outcome
-
-
-class RondaApuestasPostflop(RondaApuestasPreflop):
-    def __init__(self, sb, bb, fase, initial_pot, action_callback):
-        super().__init__(sb, bb, fase, initial_pot, action_callback)
+        """En postflop no se cobran blinds; solo se inicializa la apuesta a 0."""
+        self.current_bet = 0.0
+        self.contributions = {self.small_blind.id: 0.0, self.big_blind.id: 0.0}
         self.estado = "BB_TURN"
+
+    def get_state(self):
+        state = super().get_state()
+        state["community"] = list(self._community_cards)
+        return state
 
     def _accion(self, jugador, rival):
         valid_actions = self.get_valid_actions(jugador)
@@ -552,6 +393,39 @@ class PokerCoreEngine:
             json.dump(self.history, f, indent=4, ensure_ascii=False)
         logging.info("Historial guardado en %s.", filename)
 
+    def enumerate_actions(self, pot, stack_active, to_call, n_raises=0, raise_max=2):
+        """
+        Devuelve la lista de acciones abstractas disponibles para un nodo de decisión.
+
+        Usado por MCCFR para construir el árbol de decisión sin simular partidas
+        completas. Las acciones devueltas son las constantes de infoset_encoder.
+
+        Parámetros
+        ----------
+        pot          : float – bote actual en BBs
+        stack_active : float – fichas del jugador que actúa
+        to_call      : float – fichas que debe poner para igualar
+        n_raises     : int   – número de raises ya realizados en esta calle
+        raise_max    : int   – límite de raises por calle (default 2)
+
+        Retorna
+        -------
+        list[str] – subset de ABSTRACT_ACTIONS aplicable al estado
+        """
+        from abstracciones.infoset_encoder import (
+            FOLD, CALL, RAISE_THIRD, RAISE_HALF, RAISE_POT, RAISE_2POT, ALLIN,
+        )
+        actions = []
+        if to_call > 0:
+            actions.append(FOLD)
+        actions.append(CALL)   # call si to_call>0, check si to_call==0
+
+        if stack_active > to_call and n_raises < raise_max:
+            actions += [RAISE_THIRD, RAISE_HALF, RAISE_POT, RAISE_2POT]
+
+        actions.append(ALLIN)
+        return actions
+
     def play_round(self):
         # Preflop
         self.mesa.log_event(["phase", "preflop"])
@@ -568,9 +442,15 @@ class PokerCoreEngine:
             postflop_sb = bb  # fuera de posición
             postflop_bb = sb  # en posición
 
+            # Helper para obtener cartas comunitarias en formato compacto
+            cc = lambda: [compact_card(c) for c in self.mesa.community_cards]
+
             # Flop
             self.mesa.repartir_flop()
-            r_flop = RondaApuestasPostflop(postflop_sb, postflop_bb, "flop", self.mesa.pot, self.action_callback)
+            r_flop = RondaApuestasPostflop(
+                postflop_sb, postflop_bb, "flop", self.mesa.pot, self.action_callback,
+                community_cards=cc()
+            )
             outcome_flop = r_flop.ejecutar()
             self.mesa.history.extend(r_flop.history)
             self.mesa.pot = r_flop.pot
@@ -583,7 +463,10 @@ class PokerCoreEngine:
             else:
                 # Turn
                 self.mesa.repartir_turn()
-                r_turn = RondaApuestasPostflop(postflop_sb, postflop_bb, "turn", self.mesa.pot, self.action_callback)
+                r_turn = RondaApuestasPostflop(
+                    postflop_sb, postflop_bb, "turn", self.mesa.pot, self.action_callback,
+                    community_cards=cc()
+                )
                 outcome_turn = r_turn.ejecutar()
                 self.mesa.history.extend(r_turn.history)
                 self.mesa.pot = r_turn.pot
@@ -593,7 +476,10 @@ class PokerCoreEngine:
                 else:
                     # River
                     self.mesa.repartir_river()
-                    r_river = RondaApuestasPostflop(postflop_sb, postflop_bb, "river", self.mesa.pot, self.action_callback)
+                    r_river = RondaApuestasPostflop(
+                        postflop_sb, postflop_bb, "river", self.mesa.pot, self.action_callback,
+                        community_cards=cc()
+                    )
                     outcome_river = r_river.ejecutar()
                     self.mesa.history.extend(r_river.history)
                     self.mesa.pot = r_river.pot

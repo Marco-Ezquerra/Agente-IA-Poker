@@ -45,6 +45,7 @@ class NodoMCTS:
         if self.untried_actions:
             return self
         if not self.children:
+            # Nodo terminal sin hijos: se devuelve a sí mismo
             return self
         best = max(self.children.values(), key=lambda c: self.uct_score(c))
         return best.seleccionar()

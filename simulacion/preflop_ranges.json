@@ -1,0 +1,26 @@
+{
+  "SB": {
+    "open": [
+      "AsAh",
+      "KsKh"
+    ],
+    "limp": [],
+    "fold": [],
+    "vs_3bet": {
+      "fold": [],
+      "call": [],
+      "4bet": []
+    }
+  },
+  "BB": {
+    "call": [],
+    "check": [],
+    "fold": [],
+    "3bet": [],
+    "vs_4bet": {
+      "fold": [],
+      "call": [],
+      "5bet": []
+    }
+  }
+}
