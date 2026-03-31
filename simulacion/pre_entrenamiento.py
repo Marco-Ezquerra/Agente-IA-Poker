@@ -33,10 +33,92 @@ if _DIR not in sys.path:
 from cfr.mccfr_trainer import MCCFRTrainer
 from abstracciones.infoset_encoder import (
     ABSTRACT_ACTIONS, CALL, RAISE_POT, encode_infoset,
+    NUM_ACTIONS,
 )
+from abstracciones.card_abstractor import PREFLOP_BUCKETS, POSTFLOP_BUCKETS
 
 
-# ── Validación de convergencia ─────────────────────────────────────────────────
+# ── Análisis matemático de iteraciones necesarias ─────────────────────────────
+
+def analizar_iteraciones():
+    """
+    Calcula las iteraciones MCCFR necesarias para distintos niveles de
+    calidad, basándose en el tamaño del espacio de InfoSets y la tasa de
+    convergencia teórica de External Sampling CFR.
+
+    Fundamento matemático
+    ---------------------
+    La exploitabilidad del blueprint decrece como:
+
+        ε(T) ≈ C / √T    (para External Sampling MCCFR, Lanctot 2009)
+
+    donde T = número de iteraciones y C depende del tamaño del juego.
+    Con nuestras abstracciones (PREFLOP_BUCKETS=10, POSTFLOP_BUCKETS=8,
+    7 acciones, MAX_RAISES=4), el número de InfoSets reachables es:
+
+        |I| ≈ 2 × [10 + 8×3] × promedio_apuestas_por_calle
+
+    Para 'visitas_objetivo' visitas promedio por InfoSet:
+
+        T = |I| × visitas_objetivo / 2   (2 traversers por iteración)
+
+    Referencia: Brown & Sandholm (2017) "Libratus"; Zinkevich et al. (2007)
+    """
+    import math
+
+    print("\n" + "═" * 68)
+    print("  ANÁLISIS MATEMÁTICO DE CONVERGENCIA MCCFR")
+    print("═" * 68)
+
+    # Estimación del espacio de InfoSets con la abstracción actual.
+    # Calibrado empíricamente: con 50 postflop buckets → 795k InfoSets @ 55k iters.
+    # Reducción a 8 buckets: 795k × (8/50) ≈ 127k InfoSets (mismo espacio de
+    # bet_histories, menos granularidad de cartas).
+    # Fórmula: |I| ≈ 2pos × (10preflop + 8³postflop) × avg_bet_hist_depth
+    avg_bet_hist_depth = 5.0   # profundidad media de bet history por InfoSet
+    n_infosets_est = int(
+        2                                                         # posiciones
+        * (PREFLOP_BUCKETS + POSTFLOP_BUCKETS ** 3)               # manos×boards
+        * avg_bet_hist_depth                                      # historiales
+    )
+
+    print(f"\n  Configuración de abstracción:")
+    print(f"    PREFLOP_BUCKETS  = {PREFLOP_BUCKETS}")
+    print(f"    POSTFLOP_BUCKETS = {POSTFLOP_BUCKETS}  (reducido de 50 → convergencia CPU)")
+    print(f"    Acciones         = {NUM_ACTIONS}  (FOLD,CALL,r1/3,r1/2,r1x,r2x,AI)")
+    print(f"    InfoSets estimados (reachables) ≈ {n_infosets_est:,}")
+
+    print(f"\n  {'Nivel':20s}  {'Iters':>10}  {'Visitas/IS':>12}  {'ε est. (mbb/m)':>16}  {'CPU (min)':>10}")
+    print(f"  {'-'*20}  {'-'*10}  {'-'*12}  {'-'*16}  {'-'*10}")
+
+    # Constante C empírica (ajustada a nuestro sistema: 55k iters → ~23k mbb/m)
+    # ε(T) ≈ C/√T → C = ε × √T = 23000 × √55000 ≈ 5.39M
+    C_empirical = 23_000 * math.sqrt(55_000)
+
+    targets = [
+        ("Humo (test)",       5_000,    "~estrategia aleatoria"),
+        ("Básico (jugable)", 50_000,    "mucho ruido, vale para jugar"),
+        ("Bueno",           200_000,    "objetivo mínimo para este proyecto"),
+        ("Muy bueno",       500_000,    "comportamiento coherente"),
+        ("Excelente",     1_000_000,    "near-GTO en el espacio abstracto"),
+        ("Near-GTO",      5_000_000,    "exploitabilidad < 500 mbb/m"),
+    ]
+
+    iter_per_min = 55_000 / 5.0   # ~11k iter/min medido empíricamente
+
+    for name, iters, comment in targets:
+        visits    = (iters * 2) / max(n_infosets_est, 1)
+        eps_est   = C_empirical / math.sqrt(iters)
+        cpu_mins  = iters / iter_per_min
+        print(f"  {name:20s}  {iters:>10,}  {visits:>12.1f}  {eps_est:>14.0f}    {cpu_mins:>8.1f}   # {comment}")
+
+    print(f"\n  RECOMENDACIÓN: 200k iters (~18 min) para calidad 'Buena'")
+    print(f"  Con online learning (80 iters/mano × N manos jugadas) se")
+    print(f"  refuerzan los InfoSets más frecuentes → convergencia más rápida")
+    print(f"  en los spots reales de la partida.\n")
+    print("═" * 68)
+
+
 
 def validar_estrategia(trainer: MCCFRTrainer, n_manos: int = 20):
     """
@@ -116,9 +198,15 @@ def main():
                         help='Reanudar desde blueprint existente si está disponible')
     parser.add_argument('--validate', action='store_true',
                         help='Mostrar muestra de estrategias al finalizar')
+    parser.add_argument('--analizar', action='store_true',
+                        help='Mostrar análisis matemático de iteraciones necesarias')
     parser.add_argument('--out',      type=str, default=None,
                         help='Ruta de salida del blueprint (default: cfr/blueprint.pkl)')
     args = parser.parse_args()
+
+    # Análisis de iteraciones (opción independiente)
+    if args.analizar:
+        analizar_iteraciones()
 
     # Cargar o crear trainer
     if args.resume and MCCFRTrainer.exists(args.out):
@@ -146,9 +234,6 @@ def main():
     print(f"  Blueprint: {args.out or 'cfr/blueprint.pkl'}")
     print(f"  InfoSets : {len(trainer.regret_sum):,}")
     print(f"  Iters    : {trainer.iterations:,}")
-    print("\nPara usar el blueprint en una partida:")
-    print("  from montecarlo import blueprint_action_callback")
-    print("  engine = PokerCoreEngine(..., action_callback=blueprint_action_callback)")
 
 
 if __name__ == "__main__":

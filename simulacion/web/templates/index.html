@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Poker IA — HUNL Bot</title>
+  <link rel="stylesheet" href="/static/css/poker.css" />
+</head>
+<body>
+
+<!-- ═══════════════════ LAYOUT PRINCIPAL ═══════════════════ -->
+<div class="app-wrapper">
+
+  <!-- ── Panel lateral izquierdo (historial) ── -->
+  <aside class="side-panel left-panel">
+    <h3 class="panel-title">Historial</h3>
+    <div id="history-list" class="history-list"></div>
+  </aside>
+
+  <!-- ── Mesa central ── -->
+  <main class="table-wrapper">
+
+    <!-- Cabecera: info de sesión -->
+    <header class="session-header">
+      <span id="hand-number" class="hand-number">Mano #1</span>
+      <span id="blueprint-badge" class="badge badge-off">Sin blueprint</span>
+      <button id="btn-nueva-partida" class="btn btn-secondary btn-sm">Nueva partida</button>
+    </header>
+
+    <!-- Mesa ovalada -->
+    <div class="poker-table" id="poker-table">
+
+      <!-- Zona del bot (arriba) -->
+      <div class="player-zone bot-zone" id="bot-zone">
+        <div class="player-info" id="bot-info">
+          <span class="player-name">Bot <span id="bot-pos-badge" class="pos-badge"></span></span>
+          <span class="player-stack" id="bot-stack">200 BB</span>
+        </div>
+        <div class="cards-row" id="bot-cards">
+          <div class="card card-back"></div>
+          <div class="card card-back"></div>
+        </div>
+        <div class="bet-chip" id="bot-bet" style="display:none"></div>
+      </div>
+
+      <!-- Zona central: cartas comunitarias + pot -->
+      <div class="center-zone">
+        <div class="community-area" id="community-cards">
+          <!-- cartas comunitarias inyectadas por JS -->
+        </div>
+        <div class="pot-display" id="pot-display">
+          <span class="pot-label">POT</span>
+          <span class="pot-value" id="pot-value">0 BB</span>
+        </div>
+        <div class="street-badge" id="street-badge">Preflop</div>
+      </div>
+
+      <!-- Zona del humano (abajo) -->
+      <div class="player-zone human-zone" id="human-zone">
+        <div class="bet-chip" id="human-bet" style="display:none"></div>
+        <div class="cards-row" id="human-cards">
+          <!-- cartas del humano inyectadas por JS -->
+        </div>
+        <div class="player-info" id="human-info">
+          <span class="player-name">Tú <span id="human-pos-badge" class="pos-badge"></span></span>
+          <span class="player-stack" id="human-stack">200 BB</span>
+        </div>
+      </div>
+
+    </div><!-- /poker-table -->
+
+    <!-- ── Panel de acciones (debajo de la mesa) ── -->
+    <div class="action-panel" id="action-panel">
+
+      <!-- Mensaje de estado -->
+      <div class="status-msg" id="status-msg">Pulsa "Nueva partida" para empezar</div>
+
+      <!-- Botones de acción -->
+      <div class="action-buttons" id="action-buttons"></div>
+
+      <!-- Slider de raise -->
+      <div class="raise-slider-row" id="raise-slider-row" style="display:none">
+        <label class="slider-label">Raise: <strong id="raise-label">0 BB</strong></label>
+        <input type="range" id="raise-slider" class="slider" min="0" max="100" step="0.5" value="0" />
+        <button class="btn btn-raise" id="btn-confirm-raise">Confirmar Raise</button>
+      </div>
+
+    </div><!-- /action-panel -->
+
+  </main>
+
+  <!-- ── Panel lateral derecho (estadísticas) ── -->
+  <aside class="side-panel right-panel">
+    <h3 class="panel-title">Stats del rival</h3>
+    <div id="stats-panel" class="stats-panel">
+      <div class="stat-row"><span class="stat-name">Manos</span><span class="stat-val" id="s-hands">–</span></div>
+      <div class="stat-row"><span class="stat-name">VPIP</span><span class="stat-val" id="s-vpip">–</span></div>
+      <div class="stat-row"><span class="stat-name">PFR</span><span class="stat-val" id="s-pfr">–</span></div>
+      <div class="stat-row"><span class="stat-name">AF</span><span class="stat-val" id="s-af">–</span></div>
+      <div class="stat-row"><span class="stat-name">FTB</span><span class="stat-val" id="s-ftb">–</span></div>
+      <div class="stat-row"><span class="stat-name">WTSD</span><span class="stat-val" id="s-wtsd">–</span></div>
+      <div class="stat-divider"></div>
+      <div class="stat-tipo" id="s-tipo">–</div>
+    </div>
+
+    <h3 class="panel-title mt">Resultados</h3>
+    <div id="results-summary" class="results-summary">
+      <div class="result-row"><span>Manos jugadas</span><span id="r-total">0</span></div>
+      <div class="result-row win"><span>Ganadas</span><span id="r-wins">0</span></div>
+      <div class="result-row lose"><span>Perdidas</span><span id="r-losses">0</span></div>
+      <div class="result-row"><span>Balance (BB)</span><span id="r-balance">0</span></div>
+    </div>
+  </aside>
+
+</div><!-- /app-wrapper -->
+
+<!-- ════ OVERLAY DE RESULTADO ════ -->
+<div class="result-overlay" id="result-overlay" style="display:none">
+  <div class="result-card" id="result-card">
+    <div class="result-icon" id="result-icon">🏆</div>
+    <div class="result-title" id="result-title">¡Ganaste!</div>
+    <div class="result-subtitle" id="result-subtitle">Pot: 0 BB</div>
+    <div class="revealed-hands" id="revealed-hands"></div>
+    <button class="btn btn-primary btn-lg" id="btn-next-hand">Siguiente mano →</button>
+  </div>
+</div>
+
+<!-- ════ LOADING SPINNER ════ -->
+<div class="loading-overlay" id="loading-overlay" style="display:none">
+  <div class="spinner"></div>
+  <div class="loading-text">Bot pensando…</div>
+</div>
+
+<script src="/static/js/poker.js"></script>
+</body>
+</html>
