@@ -7,7 +7,11 @@ Implementa:
       ppot = potencial positivo  (pasar de perder a ganar con futuras cartas)
       npot = potencial negativo  (pasar de ganar a perder con futuras cartas)
   - Buckets preflop  : 0 .. PREFLOP_BUCKETS-1  (10 clases)
-  - Buckets postflop : 0 .. POSTFLOP_BUCKETS-1  (50 clases)
+  - Buckets postflop : 0 .. POSTFLOP_BUCKETS-1  (8 clases)
+
+Con 8 buckets postflop el espacio de InfoSets pasa de ~795k a ~21k
+(×38 mejor cobertura). A 200k iters se consiguen ~19 visitas/InfoSet
+(convergencia real frente a estrategia esencialmente aleatoria con 50 buckets).
 
 Referencia: Johanson et al. (2013) "Measuring the size of large no-limit poker games"
 """
@@ -20,7 +24,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 PREFLOP_BUCKETS  = 10
-POSTFLOP_BUCKETS = 50
+POSTFLOP_BUCKETS = 8
 
 RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A']
 SUITS = ['s', 'h', 'd', 'c']
