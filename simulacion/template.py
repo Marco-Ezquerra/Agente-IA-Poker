@@ -116,9 +116,12 @@ def eval_hand_from_strings(hand, board):
         return _lib.eval_hand(*ints[:14])
     if _treys_eval is not None and len(board) == 5:
         # treys devuelve 1 (mejor) … 7462 (peor) → negamos para mayor=mejor
-        board_cards = [_TreysCard.new(c) for c in board]
-        hole_cards  = [_TreysCard.new(c) for c in hand]
-        return -_treys_eval.evaluate(board_cards, hole_cards)
+        try:
+            board_cards = [_TreysCard.new(c) for c in board]
+            hole_cards  = [_TreysCard.new(c) for c in hand]
+            return -_treys_eval.evaluate(board_cards, hole_cards)
+        except (KeyError, Exception):
+            pass  # fallback al evaluador puro Python
     return _py_eval_hand(hand, board)
 
 

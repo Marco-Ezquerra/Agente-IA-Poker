@@ -98,16 +98,18 @@ def _fast_key(player, street_idx, bkts, bet_hist):
     """
     Crea la clave del InfoSet usando buckets precomputados.
 
-    Idéntica en estructura a encode_infoset() pero O(1) en tiempo:
-    no llama nunca a Monte Carlo porque los buckets ya están en bkts.
+    Clave: (player, street_idx, hand_bucket, bet_hist)
+
+    El EHS² en hand_bucket ya incorpora la textura del board (potencial
+    positivo/negativo), por lo que no hace falta añadir board_buckets
+    explícitamente. Esto mantiene el espacio de InfoSets en O(B × |β|)
+    en lugar de O(B^streets × |β|), posibilitando convergencia real con
+    200k iteraciones.
 
     bkts : dict {(player, street_idx) → bucket_int}
     """
-    hb    = bkts[(player, street_idx)]
-    # Board texture: buckets de las calles anteriores (flop, turn, river parcial)
-    all_b = (bkts[(player, 1)], bkts[(player, 2)], bkts[(player, 3)])
-    bb    = all_b[:street_idx]     # solo calles ya reveladas
-    return (player, street_idx, hb, bb, tuple(bet_hist))
+    hb = bkts[(player, street_idx)]
+    return (player, street_idx, hb, tuple(bet_hist))
 
 
 # ── Trainer ───────────────────────────────────────────────────────────────────
@@ -328,13 +330,13 @@ class MCCFRTrainer:
     # ── Entrenamiento ─────────────────────────────────────────────────────────
 
     def train(self, num_iterations: int = 50_000, log_every: int = 5_000,
-              bucket_sims: int = 100):
+              bucket_sims: int = 50):
         """
         Ejecuta num_iterations iteraciones de External Sampling MCCFR.
 
         En cada iteración:
           1. Reparte una mano completa (chance node)
-          2. Precomputa todos los buckets (1 vez por iteración)
+          2. Precomputa todos los buckets (1 vez por iteración) con bucket_sims
           3. Traversal desde perspectiva P0
           4. Traversal desde perspectiva P1
 
@@ -342,7 +344,9 @@ class MCCFRTrainer:
         ----------
         num_iterations : int  – iteraciones de entrenamiento
         log_every      : int  – frecuencia de log de progreso
-        bucket_sims    : int  – simulaciones MoneCarlo para precomputar buckets
+        bucket_sims    : int  – simulaciones Monte Carlo para precomputar buckets.
+                               Default 50: σ_EHS ≈ 0.07, suficiente para regret
+                               matching estocástico. Usar 300 para evaluación final.
         """
         print(f"Iniciando MCCFR. Objetivo: {num_iterations:,} iteraciones.")
         for i in range(1, num_iterations + 1):
