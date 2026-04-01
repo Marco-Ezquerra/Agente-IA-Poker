@@ -7,9 +7,19 @@ Implementa:
       ppot = potencial positivo  (pasar de perder a ganar con futuras cartas)
       npot = potencial negativo  (pasar de ganar a perder con futuras cartas)
   - Buckets preflop  : 0 .. PREFLOP_BUCKETS-1  (10 clases)
-  - Buckets postflop : 0 .. POSTFLOP_BUCKETS-1  (50 clases)
+  - Buckets postflop : 0 .. POSTFLOP_BUCKETS-1  (8 clases)
+
+Abstracción coarse calibrada para convergencia MCCFR en CPU:
+  Con 8 buckets postflop + 5 acciones → ~120k InfoSets totales.
+  A 200k iters: ~3 visitas/InfoSet (jugable).
+  A 1M iters: ~16 visitas/InfoSet (near-GTO en el espacio abstracto).
+
+  Contraste con abstracción fina (50 buckets, 7 acciones):
+  ~795k InfoSets → a 55k iters: 0.07 visitas/InfoSet → estrategia aleatoria.
 
 Referencia: Johanson et al. (2013) "Measuring the size of large no-limit poker games"
+           Bowling et al. (2015) "Heads-up limit hold'em poker is solved"
+           Pluribus (Brown & Sandholm, 2019) — coarse abstraction + real-time search
 """
 
 import random
@@ -20,7 +30,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 PREFLOP_BUCKETS  = 10
-POSTFLOP_BUCKETS = 50
+POSTFLOP_BUCKETS = 8    # Reducido de 50 → 8 para convergencia en CPU
 
 RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A']
 SUITS = ['s', 'h', 'd', 'c']

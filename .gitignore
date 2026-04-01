@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Trained model artifacts (large binary files)
+# Comment these out if you want to commit the trained blueprint
+simulacion/cfr/blueprint.pkl
+simulacion/cfr/checkpoint_*.pkl
+
+# Cache files
+simulacion/cache_equity.txt
+simulacion/generar_dataset.py
+
+# Flask session secret key (auto-generated, do not commit)
+simulacion/web/.secret_key
+
+# OS
+.DS_Store
+Thumbs.db

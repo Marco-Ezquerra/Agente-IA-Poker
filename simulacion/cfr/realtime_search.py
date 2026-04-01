@@ -172,20 +172,21 @@ class RealtimeSearch:
     def _leaf_value(self, traverser, bkts, street_idx, pot):
         """
         Valor estimado del subgame cuando se supera el horizonte de búsqueda.
-        Usa el bucket del jugador en la calle actual como proxy de equity.
-        Si hay blueprint disponible, pondera con la agresividad del blueprint.
+        Usa el bucket del jugador en el river como proxy de equity.
+
+        EV = (2 * eq - 1) * pot / 2
+          eq=1 → gana todo el pot; eq=0 → pierde todo; eq=0.5 → split
+        El factor /2 refleja que cada jugador ha aportado ~pot/2.
         """
-        bucket = bkts[(traverser, street_idx)]
-        eq_raw = bucket / max(POSTFLOP_BUCKETS, 1)
+        # Usar siempre el bucket del river como mejor estimación de equity final
+        b_me  = bkts[(traverser,     min(street_idx, 3))]
+        b_opp = bkts[(1 - traverser, min(street_idx, 3))]
 
-        if self.blueprint is not None:
-            key  = _fast_key(traverser, street_idx, bkts, [])
-            strat = self.blueprint.get_strategy(key)
-            aggr  = sum(strat[ACTION_IDX[a]]
-                        for a in [RAISE_THIRD, RAISE_HALF, RAISE_POT, RAISE_2POT, ALLIN])
-            eq_raw = eq_raw * 0.7 + min(aggr, 1.0) * 0.3
+        # Equity normalizada [0, 1] relativa al oponente
+        eq = 0.5 + 0.5 * (b_me - b_opp) / max(POSTFLOP_BUCKETS, 1)
+        eq = max(0.0, min(1.0, eq))
 
-        return (2.0 * eq_raw - 1.0) * pot * 0.4
+        return (2.0 * eq - 1.0) * pot * 0.5
 
     # ── Showdown con buckets ──────────────────────────────────────────────────
 
@@ -368,7 +369,9 @@ class RealtimeSearch:
             ss = self._strat_sum.get(my_key, None)
             if ss is not None and ss.sum() > 0:
                 avg = ss / ss.sum()
-                return str(ABSTRACT_ACTIONS[int(np.argmax(avg))])
+                # Samplear de la distribución (no argmax: el bot debe ser estocástico)
+                chosen_idx = int(np.random.choice(len(avg), p=avg))
+                return str(ABSTRACT_ACTIONS[chosen_idx])
 
         # Fallback: acción uniforme
         return CALL
