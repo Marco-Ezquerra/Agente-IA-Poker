@@ -18,9 +18,10 @@ Estrategia de entrenamiento recomendada
   Ronda 3 – 1 000 000 iters: producción  (≈ 30-90 min en CPU)
 
 Se puede hacer fine-tuning reanudando desde un blueprint previo:
-    trainer = MCCFRTrainer.load()
-    trainer.train(num_iterations=200_000)
-    trainer.save()
+    python cfr/train_blueprint.py --iters 200000 --resume
+
+Para entrenamientos largos se recomienda activar checkpoints:
+    python cfr/train_blueprint.py --iters 1000000 --checkpoint-every 50000
 """
 
 import argparse
@@ -37,14 +38,16 @@ from cfr.mccfr_trainer import MCCFRTrainer
 def parse_args():
     p = argparse.ArgumentParser(
         description='Entrena el blueprint MCCFR para el agente de póker HUNL.')
-    p.add_argument('--iters',     type=int, default=50_000,
+    p.add_argument('--iters',            type=int, default=50_000,
                    help='Número de iteraciones de MCCFR (default: 50 000)')
-    p.add_argument('--log-every', type=int, default=5_000,
+    p.add_argument('--log-every',        type=int, default=5_000,
                    help='Frecuencia de log (default: 5 000)')
-    p.add_argument('--resume',    action='store_true',
+    p.add_argument('--resume',           action='store_true',
                    help='Reanudar entrenamiento desde blueprint existente')
-    p.add_argument('--output',    type=str, default=None,
+    p.add_argument('--output',           type=str, default=None,
                    help='Ruta de salida del blueprint (default: cfr/blueprint.pkl)')
+    p.add_argument('--checkpoint-every', type=int, default=0,
+                   help='Guardar checkpoint cada N iteraciones (0 = desactivado)')
     return p.parse_args()
 
 
@@ -59,7 +62,12 @@ def main():
         trainer = MCCFRTrainer()
 
     t0 = time.time()
-    trainer.train(num_iterations=args.iters, log_every=args.log_every)
+    trainer.train(
+        num_iterations=args.iters,
+        log_every=args.log_every,
+        checkpoint_every=args.checkpoint_every,
+        checkpoint_path=args.output,
+    )
     elapsed = time.time() - t0
 
     trainer.save(args.output)

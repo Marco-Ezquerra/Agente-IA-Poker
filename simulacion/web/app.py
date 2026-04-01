@@ -969,7 +969,31 @@ def _full_deck():
 # ═══════════════════════════════════════════════════════════════════════════════
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
-app.secret_key = secrets.token_hex(32)
+
+# Usar una SECRET_KEY estable (desde variable de entorno o archivo local).
+# Un valor fijo garantiza que las cookies de sesión sobreviven reinicios del
+# servidor; un valor aleatorio invalida todas las sesiones al reiniciar.
+_SECRET_KEY_FILE = os.path.join(_HERE, '.secret_key')
+
+def _load_or_create_secret_key() -> str:
+    """Lee la clave de POKER_SECRET_KEY, del archivo .secret_key, o la crea."""
+    key = os.environ.get('POKER_SECRET_KEY')
+    if key:
+        return key
+    if os.path.exists(_SECRET_KEY_FILE):
+        with open(_SECRET_KEY_FILE) as f:
+            key = f.read().strip()
+        if key:
+            return key
+    key = secrets.token_hex(32)
+    try:
+        with open(_SECRET_KEY_FILE, 'w') as f:
+            f.write(key)
+    except OSError:
+        pass
+    return key
+
+app.secret_key = _load_or_create_secret_key()
 
 _sessions: dict = {}   # sid → PartidaWeb
 

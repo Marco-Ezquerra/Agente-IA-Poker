@@ -190,18 +190,21 @@ def validar_estrategia(trainer: MCCFRTrainer, n_manos: int = 20):
 
 def main():
     parser = argparse.ArgumentParser(description="Entrena el blueprint MCCFR para HUNL.")
-    parser.add_argument('--iters',    type=int, default=5_000,
+    parser.add_argument('--iters',            type=int, default=5_000,
                         help='Número de iteraciones MCCFR (default: 5000)')
-    parser.add_argument('--log',      type=int, default=1_000,
+    parser.add_argument('--log',              type=int, default=1_000,
                         help='Frecuencia de log de progreso (default: 1000)')
-    parser.add_argument('--resume',   action='store_true',
+    parser.add_argument('--resume',           action='store_true',
                         help='Reanudar desde blueprint existente si está disponible')
-    parser.add_argument('--validate', action='store_true',
+    parser.add_argument('--validate',         action='store_true',
                         help='Mostrar muestra de estrategias al finalizar')
-    parser.add_argument('--analizar', action='store_true',
+    parser.add_argument('--analizar',         action='store_true',
                         help='Mostrar análisis matemático de iteraciones necesarias')
-    parser.add_argument('--out',      type=str, default=None,
+    parser.add_argument('--out',              type=str, default=None,
                         help='Ruta de salida del blueprint (default: cfr/blueprint.pkl)')
+    parser.add_argument('--checkpoint-every', type=int, default=0,
+                        help='Guardar checkpoint cada N iteraciones (0 = desactivado). '
+                             'Recomendado para entrenamientos largos (≥100k iters).')
     args = parser.parse_args()
 
     # Análisis de iteraciones (opción independiente)
@@ -218,7 +221,12 @@ def main():
 
     # Entrenamiento
     t0 = time.time()
-    trainer.train(num_iterations=args.iters, log_every=args.log)
+    trainer.train(
+        num_iterations=args.iters,
+        log_every=args.log,
+        checkpoint_every=args.checkpoint_every,
+        checkpoint_path=args.out,
+    )
     elapsed = time.time() - t0
     print(f"\nTiempo total: {elapsed:.1f}s" +
           (f"  ({elapsed / args.iters * 1000:.2f} ms/iter)" if args.iters > 0 else ""))

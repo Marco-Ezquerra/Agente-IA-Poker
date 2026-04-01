@@ -242,9 +242,16 @@ blueprint_action_callback()
 
 - Python 3.10+
 - numpy
+- flask (para la interfaz web)
 
 ```bash
-pip install numpy
+pip install -r requirements.txt
+```
+
+O individualmente:
+
+```bash
+pip install numpy flask
 ```
 
 ### Evaluador de manos (opcional pero recomendado)
@@ -294,6 +301,19 @@ python pre_entrenamiento.py --help
 | `--out PATH` | `cfr/blueprint.pkl` | Ruta de salida del blueprint |
 | `--resume` | False | Reanuda desde el blueprint existente |
 | `--validate` | False | Imprime muestra de estrategias al terminar |
+| `--checkpoint-every N` | 0 | Guarda checkpoint cada N iters (0 = desactivado) |
+
+Para entrenamientos largos (≥100 000 iters) se recomienda activar los checkpoints
+para evitar perder progreso si el proceso se interrumpe:
+
+```bash
+# Entrenamiento largo con checkpoint cada 25 000 iters
+python pre_entrenamiento.py --iters 200000 --checkpoint-every 25000 --resume
+```
+
+Los checkpoints se guardan como `cfr/blueprint_ckptNNNNNNN.pkl`. Para reanudar
+desde el último checkpoint basta con copiarlo como `cfr/blueprint.pkl` y usar
+`--resume`.
 
 **Ejemplo de salida durante el entrenamiento:**
 
@@ -313,7 +333,44 @@ Blueprint guardado en cfr/blueprint.pkl  (12,445 InfoSets)
 --- pos=1 preflop ['7h','2c'] board=[]   0.58  0.33  0.06  0.02  0.01  0.00  0.00
 ```
 
-### 4.2 Jugar partidas con el agente
+### 4.2 Interfaz web (jugar contra el bot en el navegador)
+
+El servidor Flask sirve una interfaz visual completa para jugar contra el agente:
+
+```bash
+cd simulacion
+
+# Iniciar el servidor web (puerto 5000 por defecto)
+python web/app.py
+
+# Puerto personalizado
+python web/app.py --port 8080
+
+# Modo debug (recarga automática al editar código)
+python web/app.py --debug
+```
+
+Abrir el navegador en **`http://localhost:5000`**.
+
+La interfaz muestra:
+- Mesa ovalada con cartas del humano y el bot
+- Cartas comunitarias por calle (flop, turn, river)
+- Panel de acciones: fold / call / check / raise (con slider) / all-in
+- Panel lateral izquierdo: historial de manos de la sesión
+- Panel lateral derecho: estadísticas del rival (VPIP, PFR, AF, FTB, arquetipo)
+- Badge de blueprint (activo/inactivo)
+
+**Nota sobre el blueprint:**  
+Si no hay blueprint entrenado (`cfr/blueprint.pkl`), el bot usa una heurística
+de equity. Entrena primero con `pre_entrenamiento.py` para obtener el bot GTO:
+
+```bash
+# Mínimo recomendado antes de jugar (≈5 min)
+python pre_entrenamiento.py --iters 50000
+python web/app.py
+```
+
+### 4.3 Jugar partidas por CLI con el agente
 
 ```bash
 cd simulacion
@@ -351,7 +408,7 @@ Arquetipo: loose-passive
 Ajuste aplicado: value-bet delgado, bluff reducido al 5%
 ```
 
-### 4.3 Usar los módulos individualmente
+### 4.4 Usar los módulos individualmente
 
 #### Motor de juego
 
@@ -518,16 +575,27 @@ simulacion/
 ├── test_equity.py           Tests de cálculo de equity
 ├── test_mcts.py             Tests del módulo MCTS
 ├── test_preflop.py          Tests de rangos preflop
+├── test_cfr.py              Tests del entrenador MCCFR (7 tests)
+├── test_realtime.py         Tests de la búsqueda en tiempo real (7 tests)
+├── test_opponent.py         Tests del modelo del oponente (12 tests)
 │
 ├── abstracciones/
 │   ├── card_abstractor.py   EHS, EHS², preflop_bucket, postflop_bucket
 │   └── infoset_encoder.py   encode_infoset, definición de acciones abstractas
 │
-└── cfr/
-    ├── mccfr_trainer.py     External Sampling MCCFR (entrenamiento + blueprint)
-    ├── realtime_search.py   Subgame search en tiempo real
-    ├── train_blueprint.py   Script alternativo de entrenamiento (low-level)
-    └── blueprint.pkl        Blueprint entrenado (generado por pre_entrenamiento.py)
+├── cfr/
+│   ├── mccfr_trainer.py     External Sampling MCCFR (entrenamiento + blueprint)
+│   ├── realtime_search.py   Subgame search en tiempo real
+│   ├── train_blueprint.py   Script alternativo de entrenamiento (low-level)
+│   └── blueprint.pkl        Blueprint entrenado (generado por pre_entrenamiento.py)
+│
+└── web/
+    ├── app.py               Servidor Flask con API REST y sesiones
+    ├── templates/
+    │   └── index.html       Interfaz HTML de la mesa de póker
+    └── static/
+        ├── css/poker.css    Estilos de la mesa (mesa ovalada, cartas, HUD)
+        └── js/poker.js      Lógica frontend (fetch API, renderizado de cartas)
 ```
 
 ---
@@ -537,7 +605,7 @@ simulacion/
 ```bash
 cd simulacion
 
-# Tests de equity
+# Tests de equity (Monte Carlo)
 python test_equity.py
 
 # Tests del módulo MCTS
@@ -546,8 +614,25 @@ python test_mcts.py
 # Tests de rangos preflop
 python test_preflop.py
 
-# Todos los tests
-python -m pytest test_equity.py test_mcts.py test_preflop.py -v
+# Tests del entrenador MCCFR (requiere numpy)
+python test_cfr.py
+
+# Tests de la búsqueda en tiempo real (requiere numpy)
+python test_realtime.py
+
+# Tests del modelo del oponente
+python test_opponent.py
+
+# Todos los tests a la vez
+python -m pytest test_equity.py test_mcts.py test_preflop.py \
+                 test_cfr.py test_realtime.py test_opponent.py -v
+```
+
+Todos los tests deben pasar antes de entrenar o jugar. Si alguno falla, verifica
+que las dependencias estén instaladas:
+
+```bash
+pip install -r requirements.txt
 ```
 
 ---

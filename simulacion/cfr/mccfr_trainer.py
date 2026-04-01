@@ -328,7 +328,8 @@ class MCCFRTrainer:
     # ── Entrenamiento ─────────────────────────────────────────────────────────
 
     def train(self, num_iterations: int = 50_000, log_every: int = 5_000,
-              bucket_sims: int = 100):
+              bucket_sims: int = 100, checkpoint_every: int = 0,
+              checkpoint_path: str = None):
         """
         Ejecuta num_iterations iteraciones de External Sampling MCCFR.
 
@@ -340,11 +341,18 @@ class MCCFRTrainer:
 
         Parámetros
         ----------
-        num_iterations : int  – iteraciones de entrenamiento
-        log_every      : int  – frecuencia de log de progreso
-        bucket_sims    : int  – simulaciones MoneCarlo para precomputar buckets
+        num_iterations   : int  – iteraciones de entrenamiento
+        log_every        : int  – frecuencia de log de progreso
+        bucket_sims      : int  – simulaciones MoneCarlo para precomputar buckets
+        checkpoint_every : int  – guardar checkpoint cada N iteraciones (0 = desactivado)
+        checkpoint_path  : str  – ruta base para checkpoints; si es None se usa
+                                  BLUEPRINT_PATH con sufijo '_ckptNNNNN.pkl'
         """
         print(f"Iniciando MCCFR. Objetivo: {num_iterations:,} iteraciones.")
+        if checkpoint_every > 0:
+            ckpt_base = checkpoint_path or BLUEPRINT_PATH.replace('.pkl', '')
+            print(f"  Checkpoints cada {checkpoint_every:,} iters → {ckpt_base}_ckpt*.pkl")
+
         for i in range(1, num_iterations + 1):
             hand0, hand1, flop, turn, river = _deal()
             hands  = [hand0, hand1]
@@ -368,6 +376,12 @@ class MCCFRTrainer:
             self.iterations += 1
             if i % log_every == 0:
                 print(f"  iter {i:>8,}  |  InfoSets: {len(self.regret_sum):>8,}")
+
+            # Guardar checkpoint periódico para proteger entrenamientos largos
+            if checkpoint_every > 0 and i % checkpoint_every == 0:
+                ckpt_file = f"{ckpt_base}_ckpt{self.iterations:07d}.pkl"
+                self.save(ckpt_file)
+                print(f"  [checkpoint] Guardado en '{ckpt_file}'")
 
         print(f"Entrenamiento completado. InfoSets: {len(self.regret_sum):,}")
 
