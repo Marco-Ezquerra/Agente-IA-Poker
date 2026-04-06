@@ -80,12 +80,15 @@ def _fast_key(player, street_idx, bkts, bet_hist):
     """
     Genera la clave del InfoSet usando buckets precomputados → O(1).
 
+    BUG-5 fix: clave de 4 elementos idéntica a la de mccfr_trainer._fast_key.
+    La versión anterior usaba 5 elementos (añadía 'bb' con buckets de calles
+    anteriores), lo que provocaba que blueprint.get_strategy(key) retornase
+    siempre distribución uniforme (miss total en el blueprint entrenado).
+
     bkts : dict {(player_idx, street_idx) → bucket_int}
     """
-    hb    = bkts[(player, street_idx)]
-    all_b = (bkts[(player, 1)], bkts[(player, 2)], bkts[(player, 3)])
-    bb    = all_b[:street_idx]
-    return (player, street_idx, hb, bb, tuple(bet_hist))
+    hb = bkts[(player, street_idx)]
+    return (player, street_idx, hb, tuple(bet_hist))
 
 
 def _precompute_buckets(hand0, hand1, board, street_str, sims=60):
@@ -217,6 +220,14 @@ class RealtimeSearch:
             new_pot = pot + amount
 
             if nc[0] == nc[1] or ns[active] == 0.0:
+                # BUG-9 fix: limp de SB preflop — el BB tiene opción de check/raise.
+                # En mccfr_trainer este caso existe; sin este bloque el game tree
+                # del realtime difiere del blueprint, invalidando la estrategia
+                # aprendida para cualquier mano que empiece con limp.
+                if street_idx == 0 and active == 0 and not bet_hist:
+                    return self._search(
+                        traverser, bkts, street_idx, new_pot, ns, nc,
+                        [CALL], 0, 0.0, opponent, depth_left)
                 if street_idx < 3:
                     next_si = street_idx + 1
                     if depth_left <= 0:

@@ -69,8 +69,9 @@ def _eval5_batch(batch: np.ndarray) -> np.ndarray:
         (r_sorted[:, 4] - r_sorted[:, 0] == 4) &
         (np.diff(r_sorted, axis=1) == 1).all(axis=1)
     )
-    wheel = np.array([0, 1, 2, 3, 12], dtype=np.int8)
-    is_straight |= (r_sorted == wheel).all(axis=1)
+    wheel    = np.array([0, 1, 2, 3, 12], dtype=np.int8)
+    is_wheel = (r_sorted == wheel).all(axis=1)   # BUG-3: extrae para fix de kicker
+    is_straight |= is_wheel
 
     freq = np.zeros((N, 13), dtype=np.int8)
     for col in range(5):
@@ -87,9 +88,14 @@ def _eval5_batch(batch: np.ndarray) -> np.ndarray:
     cat[(cs[:, 0] == 2) & (cs[:, 1] == 2) & (cat == 0)] = 2
     cat[(cs[:, 0] == 2) & (cs[:, 1] != 2) & (cat == 0)] = 1
 
+    # BUG-3 fix: en el wheel (A2345) el As tiene rango 12 (posición i=4, peso 13^4=28561),
+    # lo que haría que el wheel supere numéricamente a escaleras más fuertes como 23456.
+    # Solución: sustituir el As por -1 en los hands de wheel para que actúe como carta baja.
+    r_for_kicker = r_sorted.astype(np.int64)        # copia (dtype distinto)
+    r_for_kicker[is_wheel, 4] = -1                  # As = carta baja en A-2-3-4-5
     kicker = np.zeros(N, dtype=np.int64)
     for i in range(5):
-        kicker += r_sorted[:, i].astype(np.int64) * (13 ** i)
+        kicker += r_for_kicker[:, i] * (13 ** i)
     return cat * (13 ** 5) + kicker
 
 
@@ -203,7 +209,11 @@ def compute_ehs2(hole, board, num_sims=300):
     fut_lose  = my_fut  < opp_fut
     fut_tie   = my_fut == opp_fut
 
-    ehs = float((fut_win.sum() + 0.5 * fut_tie.sum()) / num_sims)
+    # BUG-2 fix: la fórmula de Johanson requiere EHS_actual (fuerza con el board parcial),
+    # NO el EHS futuro (probabilidad de ganar con board completo). El EHS futuro solo
+    # sirve para calcular ppot/npot.
+    # Cuando no hay board (len<3), cur_ahead/cur_tie = zeros → ehs_cur = 0.5 (neutral correcto).
+    ehs_cur = float((cur_ahead.sum() + 0.5 * cur_tie.sum()) / num_sims)
 
     ppot_mask = cur_behind | cur_tie
     ppot_denom= float(ppot_mask.sum()) or 1.0
@@ -213,7 +223,7 @@ def compute_ehs2(hole, board, num_sims=300):
     npot_denom= float(npot_mask.sum()) or 1.0
     npot = float((npot_mask & fut_lose).sum() + 0.5 * (npot_mask & fut_tie).sum()) / npot_denom
 
-    ehs2 = ehs + (1.0 - ehs) * ppot - ehs * npot
+    ehs2 = ehs_cur + (1.0 - ehs_cur) * ppot - ehs_cur * npot
     return max(0.0, min(1.0, ehs2))
 
 
@@ -264,8 +274,15 @@ def preflop_bucket(hand, num_sims=300):
 
 # ── Buckets postflop ──────────────────────────────────────────────────────────
 
+# CACHE-1 fix: num_sims NO forma parte de la clave de caché.
+# Los distintos callers (trainer sims=50, realtime sims=60, encode_infoset sims=200/150)
+# generaban 4 entradas distintas para la misma (mano, board), reduciendo el hit rate
+# real ~4x. Solución: clave = solo (hand_t, board_t); sims fijos internamente.
+_POSTFLOP_CACHE_SIMS: int = 200
+
+
 @lru_cache(maxsize=32768)
-def _postflop_bucket_cached(hand_t: tuple, board_t: tuple, num_sims: int) -> int:
+def _postflop_bucket_cached(hand_t: tuple, board_t: tuple) -> int:
     """
     Versión cacheada de postflop_bucket. Acepta tuplas para ser hashable.
 
@@ -273,13 +290,16 @@ def _postflop_bucket_cached(hand_t: tuple, board_t: tuple, num_sims: int) -> int
     (mano, board) dentro del mismo árbol de traversal — varias ramas del
     árbol comparten el mismo deal e inspeccionan el mismo nodo desde distintos
     caminos.  Hit rate típico > 90 % durante el entrenamiento.
+
+    num_sims es fijo (_POSTFLOP_CACHE_SIMS) para garantizar que todos los
+    callers compartan la misma entrada de caché.
     """
-    ehs2   = compute_ehs2(list(hand_t), list(board_t), num_sims)
+    ehs2   = compute_ehs2(list(hand_t), list(board_t), _POSTFLOP_CACHE_SIMS)
     bucket = int(ehs2 * POSTFLOP_BUCKETS)
     return max(0, min(POSTFLOP_BUCKETS - 1, bucket))
 
 
-def postflop_bucket(hand, board, num_sims=200):
+def postflop_bucket(hand, board, num_sims=200):  # noqa: ARG001  (num_sims ignorado)
     """
     Asigna un bucket 0..POSTFLOP_BUCKETS-1 a una (mano, board).
     Usa EHS² para incorporar potencial de mejora.
@@ -289,15 +309,16 @@ def postflop_bucket(hand, board, num_sims=200):
 
     Parámetros
     ----------
-    hand  : list[str] – 2 cartas del jugador
-    board : list[str] – 3-5 cartas comunitarias visibles
-    num_sims : int    – simulaciones Monte Carlo (solo en cache miss)
+    hand     : list[str] – 2 cartas del jugador
+    board    : list[str] – 3-5 cartas comunitarias visibles
+    num_sims : int       – ignorado (ver _POSTFLOP_CACHE_SIMS); conservado
+                          por compatibilidad de firma con callers existentes.
 
     Retorna
     -------
     int
     """
-    return _postflop_bucket_cached(tuple(hand), tuple(board), num_sims)
+    return _postflop_bucket_cached(tuple(hand), tuple(board))
 
 
 def clear_postflop_cache():

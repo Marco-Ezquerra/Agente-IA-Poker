@@ -244,6 +244,15 @@ class MCCFRTrainer:
             # Raise proporcional
             ratio       = RAISE_RATIOS.get(action, 1.0)
             raise_extra = min(ratio * pot, stacks[active] - to_call)
+
+            # BUG-7 fix: si pot==0 el raise_extra sería 0, ejecutando en realidad
+            # un CALL pero registrando la acción como RAISE en bet_hist.
+            # Degradar a CALL para mantener la coherencia del historial.
+            if raise_extra == 0:
+                return self._apply_action(
+                    CALL, traverser, bkts, boards, street_idx,
+                    pot, stacks, contribs, bet_hist, n_raises, to_call, position)
+
             total_add   = to_call + raise_extra
             if total_add >= stacks[active]:
                 total_add = stacks[active]
@@ -277,8 +286,12 @@ class MCCFRTrainer:
         b0 = bkts[(0, 3)]
         b1 = bkts[(1, 3)]
 
-        if   b0 > b1: eq0 = 0.5 + 0.5 * (b0 - b1) / POSTFLOP_BUCKETS
-        elif b1 > b0: eq0 = 0.5 - 0.5 * (b1 - b0) / POSTFLOP_BUCKETS
+        # BUG-6 fix: los buckets van de 0 a POSTFLOP_BUCKETS-1, por lo que la
+        # diferencia máxima es (POSTFLOP_BUCKETS-1), no POSTFLOP_BUCKETS.
+        # Con denominador POSTFLOP_BUCKETS la equidad máxima era 0.969, nunca 1.0.
+        _denom = max(1, POSTFLOP_BUCKETS - 1)
+        if   b0 > b1: eq0 = 0.5 + 0.5 * (b0 - b1) / _denom
+        elif b1 > b0: eq0 = 0.5 - 0.5 * (b1 - b0) / _denom
         else:         eq0 = 0.5
 
         eq    = eq0 if traverser == 0 else (1.0 - eq0)
@@ -330,7 +343,7 @@ class MCCFRTrainer:
     # ── Entrenamiento ─────────────────────────────────────────────────────────
 
     def train(self, num_iterations: int = 50_000, log_every: int = 5_000,
-              bucket_sims: int = 50):
+              bucket_sims: int = 50, save_every: int = 10_000):
         """
         Ejecuta num_iterations iteraciones de External Sampling MCCFR.
 
@@ -347,6 +360,9 @@ class MCCFRTrainer:
         bucket_sims    : int  – simulaciones Monte Carlo para precomputar buckets.
                                Default 50: σ_EHS ≈ 0.07, suficiente para regret
                                matching estocástico. Usar 300 para evaluación final.
+        save_every     : int  – (MEMORY-1) checkpoint automático cada N iteraciones.
+                               Previene pérdida total si el proceso muere durante
+                               entrenamientos largos. 0 = desactivado.
         """
         print(f"Iniciando MCCFR. Objetivo: {num_iterations:,} iteraciones.")
         for i in range(1, num_iterations + 1):
@@ -372,6 +388,10 @@ class MCCFRTrainer:
             self.iterations += 1
             if i % log_every == 0:
                 print(f"  iter {i:>8,}  |  InfoSets: {len(self.regret_sum):>8,}")
+            # MEMORY-1: checkpoint periódico para evitar pérdida total en entrenos largos
+            if save_every and i % save_every == 0:
+                self.save()
+                print(f"  ✓ Checkpoint iter {i:,} guardado.")
 
         print(f"Entrenamiento completado. InfoSets: {len(self.regret_sum):,}")
 

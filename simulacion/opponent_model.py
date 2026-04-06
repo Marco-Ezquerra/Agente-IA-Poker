@@ -135,16 +135,18 @@ class OpponentModel:
     _MIN_HANDS    = 12
 
     def __init__(self, opponent_id: int = 1):
-        self.opponent_id      = opponent_id
-        self.stats            = OpponentStats()
-        self._opened_preflop  = False   # tracking intra-hand
+        self.opponent_id       = opponent_id
+        self.stats             = OpponentStats()
+        self._opened_preflop   = False   # tracking intra-hand
+        self._cbet_opp_counted = False   # BUG-12: solo contar UNA oportunidad de CBet por mano
 
     # ── API de observación ────────────────────────────────────────────────────
 
     def new_hand(self):
         """Llamar al inicio de cada mano nueva."""
-        self.stats.hands_seen += 1
-        self._opened_preflop   = False
+        self.stats.hands_seen  += 1
+        self._opened_preflop    = False
+        self._cbet_opp_counted  = False  # BUG-12: resetear en cada mano nueva
 
     def observe_action(self, action_str: str, street: str,
                        voluntarily: bool = True):
@@ -168,8 +170,14 @@ class OpponentModel:
                 self.stats.pfr_count += 1
                 self._opened_preflop  = True
 
-        # CBet: apuesta en el flop tras haber abierto en preflop
-        if s == 'flop' and self._opened_preflop:
+        # CBet: PRIMERA acción en el flop del jugador que abrió preflop.
+        # BUG-12 fix: el código anterior incrementaba cbet_opp para CUALQUIER
+        # acción en el flop (check, call, fold), inflando el denominador y
+        # subestimando cbet_freq. La definición correcta es: una oportunidad
+        # de CBet por mano, en el primer momento que el preflop-aggressor actúa
+        # en el flop.
+        if s == 'flop' and self._opened_preflop and not self._cbet_opp_counted:
+            self._cbet_opp_counted = True
             self.stats.cbet_opp += 1
             if a in ('raise', 'all in'):
                 self.stats.cbet_count += 1
